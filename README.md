@@ -84,7 +84,7 @@ Este documento detalha o processo de desenvolvimento e execução de um sistema 
 * **Funcionalidade:** Fornecer os dados históricos que serão usados para treinar o modelo global.
 * **Requisitos:** Um arquivo CSV formatado conforme especificado (com colunas `Date`, `Ticker`, `Open`, `High`, `Low`, `Close`, `Volume`). O nome do arquivo deve corresponder ao valor da variável `ARQUIVO_CSV_TREINAMENTO` no script `train_global_model.py` (padrão: `dados_desafio_v5.csv`).
 * **Execução:** Utilizar o painel "Arquivos" à esquerda no Google Colab para fazer o upload do seu arquivo CSV de treinamento para o diretório raiz (`/content/`).
-OBS: No CSV enviado no Github será necessário mudar o nome da coluna 'Datetime' para 'Date' para que o modelo funcione.
+* **OBS: No CSV enviado no Github será necessário mudar o nome da coluna 'Datetime' para 'Date' para que o modelo funcione.
 ---
 
 **Passo 5: Execução do Treinamento Offline do Modelo Global (Célula 5 do Colab)**
