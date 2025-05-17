@@ -1,204 +1,152 @@
-# Desafio-Investe.AI
-Desafio 8: Investe.AI - Grupo: Vazios e Nulos
-___________________________________________________________________________________________________________________________________________________________________
 
-===============================================================================
-Guia de Criação e Implementação do Robô de Trading com RL e Streamlit
+ Guia Passo a Passo: Criação e Implementação do Robô de Trading com RL
+          (Modelo Global Treinado Offline e Interface Streamlit)
 ===============================================================================
 
-Este guia descreve as etapas envolvidas na construção e execução do sistema de trading automatizado usando Aprendizado por Reforço (A2C) e uma interface gráfica interativa com Streamlit.
+**Introdução:**
 
--------------------------------------------------------------------------------
-## Etapa 1: Configuração Inicial e Coleta de Dados
--------------------------------------------------------------------------------
+Este documento detalha o processo de desenvolvimento e execução de um sistema de trading automatizado utilizando Aprendizado por Reforço (RL), especificamente o algoritmo A2C (Advantage Actor-Critic), para treinar um modelo global capaz de operar em múltiplos ativos. O sistema inclui um script para treinamento offline deste modelo global e uma interface gráfica interativa construída com Streamlit para testar e visualizar o desempenho do modelo em dados novos. Todas as etapas são projetadas para execução no ambiente Google Colaboratory (Colab).
 
-1.  **Bibliotecas Necessárias:**
-    * O projeto utiliza Python e requer a instalação de várias bibliotecas. No Google Colab, a primeira célula do notebook é dedicada a isso:
-        `!pip install streamlit pyngrok gymnasium gym_anytrading stable-baselines3 matplotlib numpy pandas --upgrade`
-    * Principais bibliotecas:
-        * `gymnasium`: Para criar os ambientes de RL (atualização do `gym`).
-        * `gym_anytrading`: Fornece um ambiente base para simulação de trading de ações.
-        * `stable-baselines3`: Para implementar e treinar agentes de RL como o A2C.
-        * `numpy`, `pandas`: Para manipulação de dados.
-        * `matplotlib`: Para gerar gráficos.
-        * `streamlit`: Para criar a interface gráfica web.
-        * `pyngrok`: Para expor o aplicativo Streamlit rodando no Colab para a internet.
+**Requisitos Gerais de Software (Instalados via Pip):**
 
-2.  **Arquivo de Dados de Entrada:**
-    * O sistema espera um arquivo CSV contendo dados históricos de cotações.
-    * Colunas obrigatórias: `Date`, `Ticker` (símbolo do ativo), `Open`, `High`, `Low`, `Close`, `Volume`.
-    * A coluna `Date` deve estar em um formato que o Pandas possa converter para datetime.
+* **Python:** Linguagem de programação base.
+* **Streamlit:** Para a criação da interface gráfica web interativa.
+* **pyngrok:** Para expor o aplicativo Streamlit rodando no Colab para a internet.
+* **Gymnasium:** Framework para desenvolver e comparar algoritmos de RL (sucessor do Gym).
+* **gym-anytrading:** Biblioteca que fornece ambientes de simulação de trading de ações para Gymnasium.
+* **Stable Baselines3:** Biblioteca de implementações de algoritmos de RL de alta qualidade, incluindo A2C.
+* **Matplotlib:** Para a geração de gráficos estáticos.
+* **NumPy:** Para computação numérica eficiente.
+* **Pandas:** Para manipulação e análise de dados tabulares.
 
--------------------------------------------------------------------------------
-## Etapa 2: `backtesting_engine.py` - O Coração da Lógica de Trading
--------------------------------------------------------------------------------
-Este arquivo Python contém toda a lógica central para processar os dados, treinar o agente e avaliá-lo para um ticker específico. Ele é projetado para ser importado e usado pelo aplicativo Streamlit.
+**Requisitos de Dados:**
 
-**A. Pré-processamento de Dados:**
-    1.  **Carregamento do DataFrame Completo:** Uma função (`carregar_dados_csv_master`) carrega o CSV principal e converte a coluna `Date` para o formato datetime.
-    2.  **Filtragem por Ticker:** A função principal de análise (`analisar_ticker_pipeline_completo`) recebe o DataFrame completo e o símbolo do ticker. Ela primeiro filtra os dados para obter apenas as informações do ticker especificado.
-    3.  **Indexação por Data:** A coluna `Date` do DataFrame filtrado é definida como o índice. O DataFrame é então ordenado por este índice.
-    4.  **Validação e Limpeza de Colunas OHLCV:**
-        * Verifica se as colunas `Open`, `High`, `Low`, `Close`, `Volume` existem.
-        * Converte a coluna `Volume` e as colunas OHLC para o tipo numérico.
-        * Trata quaisquer valores ausentes (NaNs) nas colunas OHLCV usando preenchimento progressivo (`ffill`) e regressivo (`bfill`).
-        * Garante que o índice de data seja único (removendo duplicatas, se houver).
+1.  **Arquivo CSV de Treinamento:**
+    * Nome do arquivo: Idealmente, nomeado como `dados_desafio_v5.csv` (ou o nome especificado na variável `ARQUIVO_CSV_TREINAMENTO` no script de treino).
+    * Conteúdo: Dados históricos de cotações para todos os tickers que serão usados para treinar o modelo global.
+    * Colunas Obrigatórias: `Date` (data/datetime), `Ticker` (símbolo do ativo), `Open` (preço de abertura), `High` (preço máximo), `Low` (preço mínimo), `Close` (preço de fechamento), `Volume` (volume negociado).
+    * Formato da Data: Deve ser reconhecível pelo `pd.to_datetime()`.
 
-**B. Engenharia de Features (Indicadores Técnicos):**
-    * Para fornecer mais informações ao agente de RL, indicadores técnicos são calculados manualmente usando Pandas:
-        * **SMA (Simple Moving Average):** Média Móvel Simples do preço de fechamento (ex: período de 12 dias).
-        * **RSI (Relative Strength Index):** Índice de Força Relativa (ex: período de 14 dias).
-        * **OBV (On-Balance Volume):** Saldo de Volume.
-    * Após o cálculo, quaisquer NaNs gerados (especialmente no início da série devido às janelas dos indicadores) são preenchidos com 0.
+2.  **Arquivo CSV de Teste:**
+    * Formato: Idêntico ao arquivo de treinamento (mesmas colunas).
+    * Conteúdo: Dados históricos para os tickers que se deseja testar com o modelo global treinado. Idealmente, dados não vistos durante o treinamento.
 
-**C. Ambiente de Aprendizado por Reforço (RL):**
-    1.  **Classe `MyCustomEnv`:**
-        * Uma classe de ambiente personalizada é criada herdando de `StocksEnv` da biblioteca `gym_anytrading`.
-        * Isso permite modificar o processamento de dados que o ambiente fornece ao agente.
-    2.  **Função `add_signals`:**
-        * Esta função é usada pela `MyCustomEnv` para preparar os dados de observação para o agente.
-        * Ela seleciona as features relevantes do DataFrame (ex: `Low`, `Volume`, `SMA`, `RSI`, `OBV`) e as retorna como um array NumPy.
-    3.  **Criação dos Ambientes:**
-        * São criadas instâncias de `MyCustomEnv` para treinamento e avaliação.
-        * Os ambientes são configurados com o DataFrame processado, o tamanho da janela de observação (`window_size`) e os limites de dados (`frame_bound`).
-        * O "valor de investimento inicial" fornecido pelo usuário no Streamlit é usado externamente para calcular o lucro em R$ e pode ser usado internamente pelo ambiente se a versão do `gym-anytrading` suportar (na nossa implementação atual, o ambiente usa seu saldo padrão, e o cálculo em R$ é uma projeção).
+**Arquivos Gerados pelo Processo:**
 
-**D. Treinamento do Agente (A2C):**
-    1.  **DummyVecEnv:** O ambiente de treinamento é encapsulado em um `DummyVecEnv` para compatibilidade com `Stable Baselines3`.
-    2.  **Modelo A2C:** Um agente A2C (Advantage Actor-Critic) é inicializado com uma política `MlpPolicy`.
-    3.  **Aprendizado (`model.learn()`):** O agente é treinado por um número especificado de `total_timesteps`.
+1.  `A2C_global_model.zip`: O modelo de RL global treinado e salvo.
+2.  `ticker_to_id_map.json`: Um arquivo JSON que mapeia cada ticker (do conjunto de treinamento) a um ID numérico normalizado, usado como feature pelo modelo.
 
-**E. Avaliação do Agente:**
-    1.  Após o treinamento, o modelo é avaliado em um conjunto de dados de avaliação.
-    2.  O modelo toma decisões de forma determinística.
-    3.  São extraídas informações como `total_reward` e `total_profit` (lucro percentual).
-    4.  **Cálculo do Lucro em R$:** O lucro percentual é usado com o `valor_investimento_inicial_reais` (do Streamlit) para calcular o lucro monetário.
-    5.  **Geração do Gráfico:** Um gráfico Matplotlib da simulação é gerado.
+---
+**Passo a Passo da Implementação no Google Colab:**
+---
 
-**F. Função Principal `analisar_ticker_pipeline_completo`:**
-    * Encapsula as sub-etapas A-E para um ticker.
-    * Recebe o ticker, DataFrame completo, valor de investimento inicial e timesteps de treino.
-    * Retorna um dicionário com resultados (gráficos, métricas, logs, etc.).
+**Passo 1: Instalação das Bibliotecas (Célula 1 do Colab)**
 
-**G. Função `format_brl` (ou `formatar_reais` no Streamlit):**
-    * Utilizada para formatar números como moeda brasileira (R$).
+* **Funcionalidade:** Esta célula inicial configura o ambiente do Google Colab instalando todas as bibliotecas Python necessárias para o projeto. Utiliza o gerenciador de pacotes `pip` para buscar e instalar as versões mais recentes ou especificadas das dependências.
+* **Requisitos:** Acesso à internet pela máquina virtual do Colab para baixar os pacotes.
+* **Execução:** Deve ser executada uma vez no início de cada sessão do Colab.
 
--------------------------------------------------------------------------------
-## Etapa 3: `app_streamlit_online.py` - A Interface Gráfica Interativa
--------------------------------------------------------------------------------
-Este arquivo Python cria a interface web usando Streamlit, permitindo ao usuário interagir com o motor de backtesting.
+---
 
-**A. Configuração Inicial do App:**
-    * Importa bibliotecas, incluindo `streamlit` e funções de `backtesting_engine.py`.
-    * Define funções auxiliares (ex: `formatar_reais`).
-    * Configura o layout da página e exibe título/legenda.
+**Passo 2: Criação do `backtesting_engine.py` (Célula 2 do Colab)**
 
-**B. Gerenciamento de Estado da Sessão (`st.session_state`):**
-    * Para manter informações (dados carregados, resultados) persistentes entre interações do usuário.
-    * Armazena o DataFrame principal, lista de tickers e resultados por ticker.
+* **Funcionalidade:** Este bloco de código define e salva o arquivo `backtesting_engine.py`. Este módulo Python é o núcleo do sistema, contendo:
+    * **`MyCustomEnv` e `add_signals`:** Definição do ambiente de negociação personalizado para RL, que processa os dados de mercado e adiciona indicadores técnicos (SMA, RSI, OBV) e uma feature de identificação de ticker normalizada (`ticker_id_norm`) às observações do agente.
+    * **`format_brl`:** Função utilitária para formatar valores numéricos como moeda brasileira (R$).
+    * **`carregar_dados_csv_master`:** Função para carregar e realizar uma validação inicial no arquivo CSV de dados.
+    * **`preprocess_and_feature_engineer_for_ticker`:** Função que realiza o pré-processamento detalhado dos dados de um ticker específico (tratamento de NaNs, conversão de tipos, cálculo de indicadores).
+    * **`testar_ticker_com_modelo_global`:** Função principal que será chamada pelo Streamlit. Ela carrega o modelo global pré-treinado, processa os dados de teste para um ticker específico (adicionando o `ticker_id_norm` correto usando um mapa), executa a simulação de avaliação e retorna os resultados (métricas, gráfico, logs).
+* **Requisitos:** As bibliotecas listadas no Passo 1 devem estar instaladas.
+* **Execução:** Executar esta célula para criar o arquivo `backtesting_engine.py` no ambiente do Colab. Este arquivo será importado pelos scripts subsequentes.
 
-**C. Interface do Usuário (Sidebar e Área Principal):**
-    * **Sidebar (`st.sidebar`):** Contém os controles principais:
-        * Upload de arquivo CSV.
-        * Seleção de ticker.
-        * Input para "Valor de Investimento Inicial (R$)".
-        * Input para "Timesteps para Treinamento" (individual e em lote).
-        * Botão "Analisar Ticker Individual".
-        * Botão "Analisar TODOS os Tickers".
-        * Checkbox "Reprocessar tickers já analisados".
-    * **Área Principal:** Usada para exibir os resultados e o progresso.
+---
 
-**D. Lógica de Chamada ao Engine:**
-    * Ao clicar nos botões de análise, a função `analisar_ticker_pipeline_completo` de `backtesting_engine.py` é chamada.
-    * `st.spinner` e `st.progress` mostram feedback durante o processamento.
-    * Resultados são armazenados em `st.session_state` e `st.rerun()` atualiza a interface.
+**Passo 3: Criação do `train_global_model.py` (Célula 3 do Colab)**
 
-**E. Exibição de Resultados:**
-    * Selectbox na área principal para escolher qual ticker (dos já analisados) exibir.
-    * **Métricas:** Lucro (%, R$), recompensa.
-    * **Gráfico:** Simulação da avaliação (`st.pyplot()`).
-    * **Tabela Qualitativa:** Resumo de métricas (`st.table()`).
-    * **Logs de Processamento:** Em um `st.expander()`.
-    * **Resumo Geral:** Se múltiplos tickers foram analisados, mostra tabela comparativa e métricas agregadas.
+* **Funcionalidade:** Este bloco cria o script `train_global_model.py`, responsável por orquestrar o treinamento offline do modelo A2C global. Suas principais tarefas são:
+    * Importar as funções necessárias do `backtesting_engine.py`.
+    * Definir a função `criar_dados_globais_treinamento`: Carrega o CSV de treinamento, processa os dados para cada ticker (usando `preprocess_and_feature_engineer_for_ticker`), adiciona a feature `ticker_id_norm` a cada conjunto de dados de ticker e cria um mapa (`ticker_to_id_map`) que associa cada string de ticker a seu ID numérico normalizado.
+    * No bloco `if __name__ == '__main__':`:
+        * Carrega os dados de treinamento.
+        * Chama `criar_dados_globais_treinamento` para obter os DataFrames processados por ticker e o mapa de IDs.
+        * Salva o `ticker_to_id_map.json`.
+        * Inicializa um modelo A2C.
+        * Itera sobre cada ticker com dados processados, configurando um ambiente `MyCustomEnv` específico para os dados daquele ticker (que já incluem `ticker_id_norm`).
+        * Treina o modelo A2C global (`model_global.learn()`) iterativamente com os dados de cada ticker por um número definido de `timesteps_por_ticker_iteracao`. O aprendizado é acumulado no mesmo objeto de modelo.
+        * Salva o modelo global treinado como `A2C_global_model.zip`.
+* **Requisitos:** O arquivo `backtesting_engine.py` deve ter sido criado (Passo 2).
+* **Execução:** Executar esta célula para criar o arquivo `train_global_model.py`.
 
--------------------------------------------------------------------------------
-## Etapa 3.1: Guia de Uso da Interface Streamlit (Fluxo de Usuário)
--------------------------------------------------------------------------------
-A interface Streamlit foi projetada para ser intuitiva. Siga estes passos para realizar suas análises:
+---
 
-1.  **Acesso e Carregamento de Dados:**
-    * Após iniciar o Streamlit (via `ngrok` no Colab), acesse o link público fornecido no seu navegador.
-    * Na **barra lateral esquerda**, você encontrará a seção "⚙️ Configurações e Ações".
-    * Clique no botão "1. Carregue seu arquivo CSV (Date, Ticker, OHLCV)". Selecione o seu arquivo de dados.
-        * *Nota: O Streamlit geralmente tem um limite de upload de arquivo de cerca de 200MB.*
-    * Após o carregamento bem-sucedido, uma mensagem de sucesso e o número de tickers encontrados serão exibidos na barra lateral.
+**Passo 4: Upload do Arquivo CSV de TREINAMENTO (Ação Manual)**
 
-2.  **Análise Individual de Ticker:**
-    * Ainda na barra lateral, abaixo do uploader de arquivo:
-        * **"2. Escolha um Ticker:"** Selecione o ticker desejado no menu dropdown.
-        * **"3. Valor de Investimento Inicial (R$):"** Defina o montante em Reais que você deseja usar como base para o cálculo do lucro monetário desta simulação.
-        * **"4. Timesteps para Treinamento (Individual):"** Especifique quantos passos de tempo o modelo deve treinar para este ticker.
-    * Clique no botão **"🚀 Analisar Ticker Individual: [Nome do Ticker]"**.
-    * Uma mensagem de "processando" (spinner) aparecerá. Aguarde a conclusão (pode levar alguns minutos).
-    * Os resultados (gráfico, métricas, tabela, logs) para este ticker serão exibidos na área principal da página.
+* **Funcionalidade:** Fornecer os dados históricos que serão usados para treinar o modelo global.
+* **Requisitos:** Um arquivo CSV formatado conforme especificado (com colunas `Date`, `Ticker`, `Open`, `High`, `Low`, `Close`, `Volume`). O nome do arquivo deve corresponder ao valor da variável `ARQUIVO_CSV_TREINAMENTO` no script `train_global_model.py` (padrão: `dados_desafio_v5.csv`).
+* **Execução:** Utilizar o painel "Arquivos" à esquerda no Google Colab para fazer o upload do seu arquivo CSV de treinamento para o diretório raiz (`/content/`).
 
-3.  **Análise em Lote (Todos os Tickers):**
-    * Na barra lateral, na seção "Análise em Lote":
-        * **"Timesteps para Treinamento (em Lote):"** Defina o número de timesteps de treinamento a ser usado para CADA ticker durante o processamento em lote.
-        * **"Reprocessar tickers já analisados nesta sessão?"**: Marque esta caixa se desejar que tickers já analisados anteriormente (nesta mesma sessão do Streamlit) sejam reprocessados. Caso contrário, eles serão pulados para economizar tempo.
-    * Clique no botão **"📊 Analisar TODOS os Tickers"**.
-    * Na **área principal da página**, uma barra de progresso e mensagens de status indicarão qual ticker está sendo processado. Este processo pode ser bastante demorado.
-    * Ao final, todos os resultados estarão disponíveis para visualização individual e no resumo geral.
+---
 
-4.  **Visualização dos Resultados:**
-    * Na área principal, use o dropdown **"Mostrar detalhes para o Ticker:"** para alternar entre os resultados dos diferentes tickers que já foram analisados.
-    * Para cada ticker, você verá:
-        * Lucro/Prejuízo em percentual e em Reais (com base no investimento inicial que você configurou para aquela análise).
-        * Recompensa total do agente.
-        * O gráfico da simulação do modelo treinado.
-        * Uma tabela qualitativa com métricas resumidas.
-        * Um expansor "Logs de Processamento" para ver as mensagens de status da análise daquele ticker.
-    * Se mais de um ticker foi analisado, uma seção **"Resumo Geral"** aparecerá no final da página, mostrando uma tabela comparativa e métricas agregadas como lucro médio e lucro total em R$.
+**Passo 5: Execução do Treinamento Offline do Modelo Global (Célula 5 do Colab)**
 
--------------------------------------------------------------------------------
-## Etapa 4: Execução no Google Colab 
--------------------------------------------------------------------------------
-(Conteúdo da Etapa 4 como antes, explicando as células de instalação, `%%writefile`, upload de CSV, execução com `ngrok` e resolução do `ERR_NGROK_108`.)
+* **Funcionalidade:** Esta célula executa o script `train_global_model.py` (`!python train_global_model.py`), que efetivamente treina o modelo A2C global.
+* **Requisitos:**
+    * O arquivo `backtesting_engine.py` deve existir (criado no Passo 2).
+    * O arquivo `train_global_model.py` deve existir (criado no Passo 3).
+    * O arquivo CSV de treinamento deve ter sido carregado (Passo 4).
+* **Execução:** Executar esta célula. O processo pode ser demorado. Ao final, os arquivos `A2C_global_model.zip` e `ticker_to_id_map.json` devem ser criados no diretório `/content/`. Acompanhe os logs na saída da célula para verificar o progresso e possíveis erros.
 
-**A. Célula de Instalações:**
-    * A primeira célula do notebook deve conter o comando `!pip install ...` (listado na Etapa 1).
+---
 
-**B. Criação dos Arquivos `.py`:**
-    * Use o comando mágico `%%writefile nome_do_arquivo.py` no topo de células separadas para salvar o conteúdo do `backtesting_engine.py` e do `app_streamlit_online.py` como arquivos no sistema de arquivos temporário do Colab.
+**Passo 6: Criação do `app_streamlit_global_tester.py` (Célula 6 do Colab)**
 
-**C. Upload do Arquivo de Dados CSV:**
-    * O usuário faz o upload do seu arquivo CSV (ex: `dados_desafio_v5.csv`) para a pasta raiz (`/content/`) do Colab usando o painel "Arquivos", ou diretamente pela interface do Streamlit quando o app estiver rodando.
+* **Funcionalidade:** Este bloco cria o arquivo `app_streamlit_global_tester.py`, que define a interface gráfica do usuário (GUI) para testar o modelo global. Suas principais funcionalidades são:
+    * Importar funções necessárias do `backtesting_engine.py`.
+    * Definir a função `formatar_reais` para exibição de moeda.
+    * Configurar a página Streamlit (título, layout).
+    * Gerenciar o estado da sessão para armazenar dados carregados e resultados.
+    * Criar a barra lateral (sidebar) com controles para:
+        * Upload do arquivo CSV de **TESTE**.
+        * Seleção de um ticker do CSV de teste.
+        * Input para o "Valor de Investimento Inicial (R$)" para a simulação de teste.
+        * Input para o caminho do arquivo do modelo global salvo (com valor padrão).
+        * Botão para testar um ticker individualmente.
+        * Botão para testar todos os tickers do CSV de teste em lote, com barra de progresso.
+    * Na área principal, exibir os resultados detalhados do teste para o ticker selecionado (métricas, gráfico de simulação, tabela qualitativa, logs).
+    * Exibir um resumo geral da performance de todos os tickers testados na sessão.
+* **Requisitos:** O arquivo `backtesting_engine.py` deve existir.
+* **Execução:** Executar esta célula para criar o arquivo `app_streamlit_global_tester.py`.
 
-**D. Célula de Execução do Streamlit com `ngrok`:**
-    * Esta célula contém código Python para:
-        1.  Importar `pyngrok`.
-        2.  Configurar seu authtoken do `ngrok`.
-        3.  Usar `os.system("kill ...")` para tentar finalizar processos anteriores.
-        4.  Iniciar o servidor Streamlit em segundo plano.
-        5.  Usar `ngrok.connect(...)` para criar um túnel público.
-        6.  Exibir o link público do `ngrok`.
+---
 
-**E. Resolução de Problemas Comuns no Colab:**
-    * **`ERR_NGROK_108`:** Indica limite de 1 sessão `ngrok` simultânea.
-        * **Solução:** Verificar painel do `ngrok` (dashboard.ngrok.com/agents) e encerrar sessões ativas; reiniciar sessão do Colab.
-        
--------------------------------------------------------------------------------
-## Conclusão e Próximos Passos Sugeridos
--------------------------------------------------------------------------------
-(Conteúdo da Conclusão como antes, sugerindo otimizações, mais indicadores, etc.)
+**Passo 7: Upload do Arquivo CSV de TESTE e Verificação dos Artefatos do Modelo (Ação Manual)**
 
-Este projeto estabelece uma base sólida para um sistema de trading com RL. Possíveis melhorias e próximos passos incluem:
+* **Funcionalidade:** Preparar o ambiente para a execução da interface de teste.
+* **Requisitos:**
+    * Um arquivo CSV formatado para ser usado como dados de **TESTE**.
+    * Os arquivos `A2C_global_model.zip` e `ticker_to_id_map.json` (gerados no Passo 5) devem estar presentes no diretório `/content/` (ou no caminho especificado no `app_streamlit_global_tester.py`).
+* **Execução:**
+    1.  Faça o upload do seu arquivo CSV de **TESTE** para o diretório raiz (`/content/`) do Colab.
+    2.  Verifique no painel "Arquivos" se `A2C_global_model.zip` e `ticker_to_id_map.json` estão presentes. Se você treinou em uma sessão anterior e reiniciou o Colab, precisará fazer o upload desses arquivos novamente ou tê-los salvos no Google Drive e montar o Drive.
 
-* **Otimização de Hiperparâmetros:** Ajustar os parâmetros do modelo A2C e do ambiente.
-* **Mais Indicadores/Features:** Experimentar com diferentes indicadores técnicos ou features alternativas.
-* **Funções de Recompensa Avançadas:** Refinar a função de recompensa do ambiente para melhor alinhar com os objetivos de trading (ex: considerar risco, drawdown).
-* **Simulação de Custos:** Adicionar custos de transação e slippage ao ambiente.
-* **Validação Robusta:** Testar em mais ativos, períodos mais longos e diferentes condições de mercado (out-of-sample, walk-forward optimization).
-* **Gerenciamento de Risco:** Implementar lógicas de stop-loss, take-profit, ou dimensionamento de posição.
+---
 
-___________________________________________________________________________________________________________________________________________________________________
+**Passo 8: Execução da Interface Streamlit com `ngrok` (Célula 7 ou 8 do Colab)**
+
+* **Funcionalidade:** Esta célula lança o aplicativo Streamlit (`app_streamlit_global_tester.py`) e o torna acessível através de um link público na internet usando `ngrok`.
+* **Requisitos:**
+    * Todos os arquivos `.py` necessários (`backtesting_engine.py`, `app_streamlit_global_tester.py`) devem ter sido criados.
+    * Os artefatos do modelo (`A2C_global_model.zip`, `ticker_to_id_map.json`) devem estar no local esperado.
+    * Seu authtoken do `ngrok` deve ser inserido corretamente no script.
+* **Execução:**
+    1.  Execute esta célula. Ela irá:
+        * Configurar o `ngrok` com seu authtoken.
+        * Tentar finalizar processos `streamlit` ou `ngrok` anteriores.
+        * Iniciar o servidor Streamlit em segundo plano.
+        * Aguardar um breve período para o servidor iniciar (o `time.sleep(15)` foi aumentado para dar mais tempo).
+        * Criar um túnel `ngrok` e exibir o link público.
+    2.  Clique no link público gerado para abrir o dashboard Streamlit no seu navegador.
+    3.  Dentro do aplicativo, carregue seu CSV de TESTE, selecione um ticker, defina o investimento e clique em "Testar Modelo Global" (ou "Testar TODOS os Tickers").
+    4.  Se encontrar o erro `ERR_NGROK_108`, siga as instruções na saída da célula (verificar seu painel `ngrok.com/agents` para encerrar sessões ativas ou reiniciar a sessão do Colab e repetir os passos de criação de arquivos e execução do `ngrok`).
+
+---
